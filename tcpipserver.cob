@@ -85,6 +85,11 @@ working-storage section.
 01 msgbuffer pic x(1024).
 01 msgbuffer-length binary-short unsigned.
 
+01 httpmethod pic x(10) value spaces.
+
+01 httppath pic x(1024) value spaces.
+
+01 firstline pic x(1024) value spaces.
 
 01 command-string pic x(64).
 01 command-ip-address pic x(15) value spaces.
@@ -235,8 +240,17 @@ start-tcpipserver.
 *>                    end-if
 *>                end-perform
             when buffer(1:4) = 'GET'
+                move spaces to firstline
+                move spaces to httpmethod
+                move spaces to httppath
+                unstring buffer delimited by CR
+                    into firstline
+                end-unstring
+                unstring firstline delimited by SPACE
+                    into httpmethod,httppath
+                end-unstring
                 move spaces to msgbuffer
-                move function concatenate("Hello Cobol!") to msgbuffer
+                move function concatenate("Hello Cobol!" LF "You asked for: " trim(httppath) "!!" LF) to msgbuffer
                 perform calc-msglen
                 display msgbuffer-length end-display
                 move msgbuffer-length to dispnum
