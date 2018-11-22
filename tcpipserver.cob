@@ -46,9 +46,10 @@ file-control.
 data division.
 file section.
 fd  system-file.
-01  system-record pic x(256).
+01  system-record pic x(255).
 
 working-storage section.
+01  HEXSTR   PIC X(16) VALUE "0123456789ABCDEF".
 01  errno binary-char unsigned.
 01  errno-name pic x(16).
 01  errno-message pic x(40).
@@ -82,6 +83,10 @@ working-storage section.
 01 buffer pic x(8192).
 01 buffer-length binary-short unsigned.
 
+01 buffer2 pic x(8192).
+01 buffer2-length binary-short unsigned.
+
+
 01 msgbuffer pic x(1024).
 01 msgbuffer-length binary-short unsigned.
 
@@ -104,6 +109,9 @@ working-storage section.
 01 system-command pic x(64).
 
 01 dispnum pic zzz9.
+
+01 hex1 pic 99.
+01 hex2 pic 99.
 
 procedure division.
 start-tcpipserver.
@@ -222,11 +230,13 @@ start-tcpipserver.
 *>                    perform send-file
 *>                end-if
 *>                move 0 to buffer-length
-*>            when buffer(1:3) = 'get' or 'GET'
+            when buffer(1:4) = 'POST'
 *>*>              send a file to the peer
-*>                move 'tcpipserver.cbl' to system-file-name
-*>                perform send-file
-*>                move 0 to buffer-length
+                display "sending" LF
+                move 'tcpipserver.cob' to system-file-name
+*>                move 'get_errno.c' to system-file-name
+                perform send-http-file
+                move 0 to buffer-length
 *>            when buffer(1:3) = 'put' or 'PUT'
 *>*>              get a file from the peer
 *>*>              the peer will close the connection
@@ -300,10 +310,20 @@ calc-buflen.
     or buffer(buffer-length:) = spaces
         continue
     end-perform
+    compute buffer-length = buffer-length - 1 
+    .
+send-http-file.
+    move function concatenate("HTTP/1.1 200 OK" CR LF  "Server: HelloCobol" CR LF  "Content-type: text/plain" CR LF "Connection: close" CR LF "Transfer-Encoding: chunked"  CR LF CR LF) to buffer                    
+    perform calc-buflen
+    perform send-to-peer
+    perform chunked-send-file
+    move function concatenate("0" CR LF CR LF) to buffer                    
+    perform calc-buflen
+    perform send-to-peer
     .
 send-file.
     open input system-file
-    read system-file end-read
+    read system-file end-read    
     perform until system-file-status <> '00'
         move system-record to buffer
         perform varying buffer-length from 1 by 1
@@ -313,6 +333,34 @@ send-file.
         end-perform
         perform send-to-peer
         perform read-from-peer
+        read system-file end-read
+    end-perform
+    close system-file
+    move spaces to system-file-status
+    .
+chunked-send-file.
+    open input system-file
+    read system-file end-read    
+    perform until system-file-status <> '00'        
+        move spaces to buffer
+        move system-record to buffer
+        perform calc-buflen     
+        compute buffer-length = buffer-length + 1
+        divide buffer-length by 16 giving hex1 remainder hex2
+        compute hex1 = hex1 + 1
+        compute hex2 = hex2 + 1
+        move spaces to buffer
+        move function concatenate(hexstr(hex1:1) hexstr(hex2:1) CR LF) to buffer
+        perform calc-buflen
+        perform send-to-peer
+        move spaces to buffer
+        move system-record to buffer
+        perform calc-buflen
+        perform send-to-peer
+        move spaces to buffer
+        move concatenate(CR LF) to buffer
+        perform calc-buflen
+        perform send-to-peer
         read system-file end-read
     end-perform
     close system-file
