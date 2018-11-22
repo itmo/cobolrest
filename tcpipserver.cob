@@ -3,6 +3,8 @@ identification division.
 program-id. tcpipserver.
 *> 
 *>  Copyright (C) 2014 Steve Williams <stevewilliams38@gmail.com>
+*>  originally, now modified my Markus Mikkolainen to act as a stupid
+*>  HTTP server
 *> 
 *>  This program is free software; you can redistribute it and/or
 *>  modify it under the terms of the GNU General Public License as
@@ -20,15 +22,13 @@ program-id. tcpipserver.
 *>  59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
 *> ===================================================
-*> A simple tcp/ip server which receives commands from
-*> (a) simple tcp/ip client(s)
+*> A simple http  server which says hello world to all
+*> people
 *>
 *>     cobc -x -Wall tcpipserver.cbl
 *>     chmod +x tcpipserver
 *>     ./tcpipserver [serverquadaddress]/serverport
 *>
-*> client commands are get, put, ls, and quit
-*> -- anything else will be echoed 
 *>
 *> ===================================================
 
@@ -66,6 +66,8 @@ working-storage section.
 01 SO_REUSEADDR binary-int value 2.
 01 YES binary-int value 1.
 01 NL pic x value x'0A'.
+01 LF pic x value x'0A'.
+01 CR pic x value x'0D'.
 
 01 queue-length binary-char value 2.
 
@@ -77,8 +79,12 @@ working-storage section.
    03  filler pic x(8) value low-values.
 01 peer-address-length binary-short unsigned.
 
-01 buffer pic x(1024).
+01 buffer pic x(8192).
 01 buffer-length binary-short unsigned.
+
+01 msgbuffer pic x(1024).
+01 msgbuffer-length binary-short unsigned.
+
 
 01 command-string pic x(64).
 01 command-ip-address pic x(15) value spaces.
@@ -91,6 +97,8 @@ working-storage section.
 01 system-file-name pic x(64).
 01 system-file-status pic x(2).
 01 system-command pic x(64).
+
+01 dispnum pic zzz9.
 
 procedure division.
 start-tcpipserver.
@@ -198,37 +206,49 @@ start-tcpipserver.
             when buffer(1:4) = 'quit' or 'QUIT'
 *>              peer commands the server to shut down
                 move 'Y' to quit-received
-            when buffer(1:2) = 'ls' or 'LS'
-*>              send a directory listing to the peer
+*>            when buffer(1:2) = 'ls' or 'LS'
+*>*>              send a directory listing to the peer
 *>              the server will close the connection
-                move spaces to system-command system-file-status
-                move 'ls > servertemp' to system-command
-                call 'SYSTEM' using system-command end-call
-                if return-code = 0
-                    move 'servertemp' to system-file-name
-                    perform send-file
-                end-if
-                move 0 to buffer-length
-            when buffer(1:3) = 'get' or 'GET'
-*>              send a file to the peer
-                move 'tcpipserver.cbl' to system-file-name
-                perform send-file
-                move 0 to buffer-length
-            when buffer(1:3) = 'put' or 'PUT'
-*>              get a file from the peer
-*>              the peer will close the connection
-                perform until buffer-length = 0
-                    move 'OK' to buffer
-                    move 2 to buffer-length
-                    perform send-to-peer
-                    perform read-from-peer
-                    if buffer-length > 0
-                        display buffer-length space buffer(1:buffer-length) end-display
-                    end-if
-                end-perform
+*>                move spaces to system-command system-file-status
+*>                move 'ls > servertemp' to system-command
+*>                call 'SYSTEM' using system-command end-call
+*>                if return-code = 0
+*>                    move 'servertemp' to system-file-name
+*>                    perform send-file
+*>                end-if
+*>                move 0 to buffer-length
+*>            when buffer(1:3) = 'get' or 'GET'
+*>*>              send a file to the peer
+*>                move 'tcpipserver.cbl' to system-file-name
+*>                perform send-file
+*>                move 0 to buffer-length
+*>            when buffer(1:3) = 'put' or 'PUT'
+*>*>              get a file from the peer
+*>*>              the peer will close the connection
+*>                perform until buffer-length = 0
+*>                    move 'OK' to buffer
+*>                    move 2 to buffer-length
+*>                    perform send-to-peer
+*>                    perform read-from-peer
+*>                    if buffer-length > 0
+*>                        display buffer-length space buffer(1:buffer-length) end-display
+*>                    end-if
+*>                end-perform
+            when buffer(1:4) = 'GET'
+                move spaces to msgbuffer
+                move function concatenate("Hello Cobol!") to msgbuffer
+                perform calc-msglen
+                display msgbuffer-length end-display
+                move msgbuffer-length to dispnum
+                move function concatenate("HTTP/1.1 200 OK" CR LF  "Server: HelloCobol" CR LF  "Content-type: text/plain" CR LF "Connection: close" CR LF "Content-length: " trim(dispnum) CR LF CR LF msgbuffer(1:msgbuffer-length)) to buffer                
+                perform calc-buflen
+                display buffer-length end-display
+                perform send-to-peer
+                perform read-from-peer
+                move 0 to buffer-length                
             when other
-*>              echo the command to the peer
-*>              the server will close the connection
+*>*>              echo the command to the peer
+*>*>              the server will close the connection                
                 perform send-to-peer
                 perform read-from-peer
                 move 0 to buffer-length
@@ -252,6 +272,20 @@ start-tcpipserver.
 
     display NL 'end tcpipserver' end-display
     stop run
+    .
+calc-msglen.
+    perform varying msgbuffer-length from 1 by 1
+    until msgbuffer-length >= length(msgbuffer)
+    or msgbuffer(msgbuffer-length:) = spaces
+        continue
+    end-perform
+    .
+calc-buflen.
+    perform varying buffer-length from 1 by 1
+    until buffer-length >= length(buffer)
+    or buffer(buffer-length:) = spaces
+        continue
+    end-perform
     .
 send-file.
     open input system-file
