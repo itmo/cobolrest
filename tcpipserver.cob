@@ -303,6 +303,7 @@ calc-msglen.
     or msgbuffer(msgbuffer-length:) = spaces
         continue
     end-perform
+    compute msgbuffer-length = msgbuffer-length - 1 
     .
 calc-buflen.
     perform varying buffer-length from 1 by 1
